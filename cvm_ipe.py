@@ -1,0 +1,68 @@
+#!/usr/bin/env python3
+"""Download Brazilian annual reports (CVM IPE register) for one year.
+
+  index  https://dados.cvm.gov.br/dados/CIA_ABERTA/DOC/IPE/DADOS/ipe_cia_aberta_<year>.zip
+  file   Link_Download -> https://www.rad.cvm.gov.br/ENET/frmDownloadDocumento.aspx?...
+
+Kept types: Demonstrações Financeiras Anuais Completas, Demonstrações Financeiras em
+Padrões Internacionais, Relatório Anual.
+  python3 cvm_ipe.py --year 2023 --out out
+"""
+import argparse, csv, io, os, re, sys, time, urllib.request, zipfile
+
+UA = {"User-Agent": "Mozilla/5.0 (research; personal archive)"}
+TYPES = {"Demonstrações Financeiras Anuais Completas",
+         "Demonstrações Financeiras em Padrões Internacionais", "Relatório Anual"}
+EXT = {b"%PDF": ".pdf", b"PK\x03\x04": ".zip", b"<?xm": ".xml"}
+
+
+def get(url, tries=4):
+    for i in range(tries):
+        try:
+            with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=180) as r:
+                return r.read(), r.headers.get("Content-Disposition") or ""
+        except Exception:
+            if i == tries - 1:
+                raise
+            time.sleep(5 * (i + 1))
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--year", type=int, required=True)
+    ap.add_argument("--out", default="out")
+    ap.add_argument("--pause", type=float, default=0.5)
+    ap.add_argument("--limit", type=int, default=0)
+    a = ap.parse_args()
+
+    z, _ = get(f"https://dados.cvm.gov.br/dados/CIA_ABERTA/DOC/IPE/DADOS/ipe_cia_aberta_{a.year}.zip")
+    zf = zipfile.ZipFile(io.BytesIO(z))
+    rows = list(csv.DictReader(io.TextIOWrapper(zf.open(zf.namelist()[0]), "latin1"), delimiter=";"))
+    rows = [r for r in rows if r["Tipo"] in TYPES and r["Link_Download"]]
+    if a.limit:
+        rows = rows[:a.limit]
+    print(f"{a.year}: {len(rows)} documents", flush=True)
+    ok = bad = 0
+    for n, r in enumerate(rows, 1):
+        name = re.sub(r"[^\w\-]+", "_", r["Nome_Companhia"])[:50].strip("_")
+        folder = os.path.join(a.out, str(a.year), f"{r['Codigo_CVM']}_{name}")
+        base = f"{r['Data_Entrega']}_{r['Protocolo_Entrega']}_v{r['Versao']}_" + \
+               re.sub(r"[^\w\-]+", "_", r["Tipo"] + "_" + (r["Especie"] or ""))[:70].strip("_")
+        try:
+            time.sleep(a.pause)
+            data, cd = get(r["Link_Download"])
+            ext = EXT.get(data[:4]) or (os.path.splitext(cd.split("filename=")[-1].strip('"; '))[1] if "filename=" in cd else ".bin")
+            os.makedirs(folder, exist_ok=True)
+            with open(os.path.join(folder, base + ext), "wb") as f:
+                f.write(data)
+            ok += 1
+        except Exception as e:
+            bad += 1
+            print(f"  error {r['Protocolo_Entrega']}: {e}", file=sys.stderr, flush=True)
+        if n % 100 == 0:
+            print(f"[{n}/{len(rows)}] ok={ok} err={bad}", flush=True)
+    print(f"done {a.year}: ok={ok} err={bad}", flush=True)
+
+
+if __name__ == "__main__":
+    main()

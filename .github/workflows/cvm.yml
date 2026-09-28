@@ -1,0 +1,37 @@
+name: cvm-annual-reports
+on:
+  workflow_dispatch:
+    inputs:
+      years:
+        description: 'JSON list of years'
+        default: '[2016,2017,2018,2019,2020,2021,2022,2023,2024,2025,2026]'
+      limit:
+        description: 'max documents per year (0 = all)'
+        default: '0'
+permissions:
+  contents: write
+jobs:
+  year:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        year: ${{ fromJSON(github.event.inputs.years) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download
+        run: python3 cvm_ipe.py --year ${{ matrix.year }} --out out --limit ${{ github.event.inputs.limit }} 2>&1 | tee log_${{ matrix.year }}.txt
+      - name: Pack (parts <= 1.9 GB)
+        run: |
+          mkdir -p pack
+          cp log_${{ matrix.year }}.txt pack/
+          if [ -d out ]; then tar -cf - -C out . | split -b 1900m -d - pack/br_${{ matrix.year }}.tar.part; fi
+          ls -la pack
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view cvm-data >/dev/null 2>&1 || gh release create cvm-data --title "CVM annual reports" --notes "tar parts per year; cat parts | tar -x" || true
+          gh release upload cvm-data pack/* --clobber

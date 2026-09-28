@@ -8,7 +8,8 @@ Kept types: Demonstrações Financeiras Anuais Completas, Demonstrações Financ
 Padrões Internacionais, Relatório Anual.
   python3 cvm_ipe.py --year 2023 --out out
 """
-import argparse, csv, io, os, re, sys, time, urllib.request, zipfile
+import argparse, csv, io, os, re, sys, threading, time, urllib.request, zipfile
+from concurrent.futures import ThreadPoolExecutor
 
 UA = {"User-Agent": "Mozilla/5.0 (research; personal archive)"}
 TYPES = {"Demonstrações Financeiras Anuais Completas",
@@ -33,6 +34,7 @@ def main():
     ap.add_argument("--out", default="out")
     ap.add_argument("--pause", type=float, default=0.5)
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--threads", type=int, default=6)
     a = ap.parse_args()
 
     z, _ = get(f"https://dados.cvm.gov.br/dados/CIA_ABERTA/DOC/IPE/DADOS/ipe_cia_aberta_{a.year}.zip")
@@ -42,8 +44,10 @@ def main():
     if a.limit:
         rows = rows[:a.limit]
     print(f"{a.year}: {len(rows)} documents", flush=True)
-    ok = bad = 0
-    for n, r in enumerate(rows, 1):
+    st = {"ok": 0, "bad": 0, "n": 0}
+    lock = threading.Lock()
+
+    def one(r):
         name = re.sub(r"[^\w\-]+", "_", r["Nome_Companhia"])[:50].strip("_")
         folder = os.path.join(a.out, str(a.year), f"{r['Codigo_CVM']}_{name}")
         base = f"{r['Data_Entrega']}_{r['Protocolo_Entrega']}_v{r['Versao']}_" + \
@@ -55,12 +59,18 @@ def main():
             os.makedirs(folder, exist_ok=True)
             with open(os.path.join(folder, base + ext), "wb") as f:
                 f.write(data)
-            ok += 1
+            k = "ok"
         except Exception as e:
-            bad += 1
+            k = "bad"
             print(f"  error {r['Protocolo_Entrega']}: {e}", file=sys.stderr, flush=True)
-        if n % 100 == 0:
-            print(f"[{n}/{len(rows)}] ok={ok} err={bad}", flush=True)
+        with lock:
+            st[k] += 1; st["n"] += 1
+            if st["n"] % 100 == 0:
+                print(f"[{st['n']}/{len(rows)}] ok={st['ok']} err={st['bad']}", flush=True)
+
+    with ThreadPoolExecutor(a.threads) as ex:
+        list(ex.map(one, rows))
+    ok, bad = st["ok"], st["bad"]
     print(f"done {a.year}: ok={ok} err={bad}", flush=True)
 
 

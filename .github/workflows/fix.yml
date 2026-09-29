@@ -1,0 +1,15 @@
+name: cvm-fix-duplicates
+on: workflow_dispatch
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 fix_download.py 2>&1 | tee log_fix.txt
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tar -cf br_fix.tar -C out .
+          gh release upload cvm-data br_fix.tar log_fix.txt --clobber

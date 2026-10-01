@@ -53,7 +53,7 @@ def main():
         raw = csv.DictReader(io.TextIOWrapper(zf.open(f"{a.source}_cia_aberta_{a.year}.csv"), "latin1"), delimiter=";")
         rows = [{"Nome_Companhia": r["DENOM_CIA"], "Codigo_CVM": r["CD_CVM"], "Data_Entrega": r["DT_RECEB"],
                  "Protocolo_Entrega": r["ID_DOC"], "Versao": r["VERSAO"], "Tipo": r["CATEG_DOC"],
-                 "Especie": r["DT_REFER"], "Link_Download": r["LINK_DOC"]} for r in raw if r.get("LINK_DOC")]
+                 "Especie": r["DT_REFER"], "Link_Download": r["LINK_DOC"].replace("http://", "https://").replace("/ENETCONSULTA/", "/ENET/")} for r in raw if r.get("LINK_DOC")]
     if a.limit:
         rows = rows[:a.limit]
     print(f"{a.year}: {len(rows)} documents", flush=True)

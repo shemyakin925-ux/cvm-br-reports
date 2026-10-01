@@ -8,6 +8,9 @@ on:
       limit:
         description: 'max documents per year (0 = all)'
         default: '0'
+      source:
+        description: 'ipe | itr | dfp'
+        default: 'ipe'
 permissions:
   contents: write
 jobs:
@@ -22,12 +25,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Download
-        run: python3 cvm_ipe.py --year ${{ matrix.year }} --out out --limit ${{ github.event.inputs.limit }} 2>&1 | tee log_${{ matrix.year }}.txt
+        run: python3 cvm_ipe.py --year ${{ matrix.year }} --out out --limit ${{ github.event.inputs.limit }} --source ${{ github.event.inputs.source }} 2>&1 | tee log_${{ matrix.year }}.txt
       - name: Pack (parts <= 1.9 GB)
         run: |
           mkdir -p pack
-          cp log_${{ matrix.year }}.txt pack/
-          if [ -d out ]; then tar -cf - -C out . | split -b 1900m -d - pack/br_${{ matrix.year }}.tar.part; fi
+          P=$([ "${{ github.event.inputs.source }}" = ipe ] && echo br_ || echo br_${{ github.event.inputs.source }}_)
+          cp log_${{ matrix.year }}.txt pack/${P}log_${{ matrix.year }}.txt
+          if [ -d out ]; then tar -cf - -C out . | split -b 1900m -d - pack/${P}${{ matrix.year }}.tar.part; fi
           ls -la pack
       - name: Upload to release
         env:

@@ -14,6 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 UA = {"User-Agent": "Mozilla/5.0 (research; personal archive)"}
 TYPES = {"Demonstrações Financeiras Anuais Completas",
          "Demonstrações Financeiras em Padrões Internacionais", "Relatório Anual"}
+TYPES_OLD = TYPES | {"Press-release"}  # --source ipe for years before 2016: results releases too
 EXT = {b"%PDF": ".pdf", b"PK\x03\x04": ".zip", b"<?xm": ".xml"}
 
 
@@ -35,12 +36,24 @@ def main():
     ap.add_argument("--pause", type=float, default=0.5)
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--threads", type=int, default=6)
+    ap.add_argument("--source", default="ipe", choices=["ipe", "itr", "dfp"],
+                    help="ipe: IPE register; itr/dfp: quarterly/annual statement documents (LINK_DOC)")
     a = ap.parse_args()
 
-    z, _ = get(f"https://dados.cvm.gov.br/dados/CIA_ABERTA/DOC/IPE/DADOS/ipe_cia_aberta_{a.year}.zip")
-    zf = zipfile.ZipFile(io.BytesIO(z))
-    rows = list(csv.DictReader(io.TextIOWrapper(zf.open(zf.namelist()[0]), "latin1"), delimiter=";"))
-    rows = [r for r in rows if r["Tipo"] in TYPES and r["Link_Download"]]
+    if a.source == "ipe":
+        z, _ = get(f"https://dados.cvm.gov.br/dados/CIA_ABERTA/DOC/IPE/DADOS/ipe_cia_aberta_{a.year}.zip")
+        zf = zipfile.ZipFile(io.BytesIO(z))
+        rows = list(csv.DictReader(io.TextIOWrapper(zf.open(zf.namelist()[0]), "latin1"), delimiter=";"))
+        types = TYPES if a.year >= 2016 else TYPES_OLD
+        rows = [r for r in rows if r["Tipo"] in types and r["Link_Download"]]
+    else:
+        z, _ = get(f"https://dados.cvm.gov.br/dados/CIA_ABERTA/DOC/{a.source.upper()}/DADOS/"
+                   f"{a.source}_cia_aberta_{a.year}.zip")
+        zf = zipfile.ZipFile(io.BytesIO(z))
+        raw = csv.DictReader(io.TextIOWrapper(zf.open(f"{a.source}_cia_aberta_{a.year}.csv"), "latin1"), delimiter=";")
+        rows = [{"Nome_Companhia": r["DENOM_CIA"], "Codigo_CVM": r["CD_CVM"], "Data_Entrega": r["DT_RECEB"],
+                 "Protocolo_Entrega": r["ID_DOC"], "Versao": r["VERSAO"], "Tipo": r["CATEG_DOC"],
+                 "Especie": r["DT_REFER"], "Link_Download": r["LINK_DOC"]} for r in raw if r.get("LINK_DOC")]
     if a.limit:
         rows = rows[:a.limit]
     print(f"{a.year}: {len(rows)} documents", flush=True)
